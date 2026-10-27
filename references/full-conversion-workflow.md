@@ -39,12 +39,12 @@ Books contain crystallized expertise: frameworks, principles, and techniques tha
 
 ## Modes of Operation
 
-Four paths available. Route based on what the user asks:
+Four paths available. Route based on what the user asks; explicit authorization and stated intent carry through the workflow, so do not re-ask for a decision the user has already made:
 
 ### 1. Full Conversion (Default)
 **Trigger:** User provides one or more document/directory/glob paths without special instructions
 **Action:** Run all steps below (Steps 0–9)
-**Output:** Complete skill with SKILL.md, chapters/, glossary, patterns, cheatsheet
+**Output:** A complete, usable skill whose files and navigation are selected for the user’s purpose; chapter lookup can retain chapters/, while other tasks may use application-oriented flows and only useful supporting files.
 
 ### 2. Analyze Only
 **Trigger:** User says "analyze", "just extract", or "I want to review before generating"
@@ -76,7 +76,7 @@ This converter can run from multiple skill systems. When looking for this conver
 7. Amp global skills: `~/.config/agents/skills/`
 8. Amp legacy global skills: `~/.config/amp/skills/`
 
-For **generated** book skills, pick a destination that the user's host agent can actually discover (see Step 5). When more than one valid root exists, ask the user once and remember the answer for the session — do not silently default.
+For **generated** book skills, pick a destination that the user's host agent can actually discover (see Step 5). Ask only when the destination is genuinely ambiguous and the choice materially affects discoverability or scope; retain an already stated preference.
 
 ---
 
@@ -104,7 +104,7 @@ If no supported files are found, stop with a clear error message.
 
 ## Step 1.5 — Identify content type
 
-Before extracting, ask the user:
+Infer the content type from the source when practical. Ask only when it is genuinely unclear and the choice materially affects parser quality; otherwise use the best-fit mode and mention any limitation. If asking, use:
 
 > "What kind of content do these sources have? This helps me choose the best extraction method.
 >
@@ -172,41 +172,11 @@ Read `<tempdir>/book_skill_work/metadata.json` to inspect the results.
 
 ---
 
-## Step 2.5 — Pre-flight cost estimate
+## Step 2.5 — Metadata and planning
 
-Read `<tempdir>/book_skill_work/metadata.json` and present the user with an estimate **before doing any generation**:
+Read `metadata.json` and report source names/formats, approximate pages or sections, and word count when useful. Use token estimates internally to plan bounded reading and generation; do not present model-specific prices or wait for a second approval when the user already requested full conversion. If the user asks for cost, explain that actual pricing depends on the model/provider in use and verify current rates before quoting.
 
-```
-📖 Sources detected: <total_sources> source(s)
-<list each source filename and format from the sources metadata list>
-📄 Combined Pages/Sections: ~<N> | Words: ~<N> | Total tokens: ~<N>K
-
-💰 Estimated token cost (Full Conversion / Update):
-   Input  (reading + prompts): ~<N>K tokens
-   Output (skill files generated/updated):  ~<N>K tokens
-   Total:                           ~<N>K tokens
-
-   Reference prices (as of 2025):
-   Claude Sonnet 4.5 → ~$<X> USD
-   Claude Haiku 4.5  → ~$<X> USD
-
-   ⏱  Estimated time: ~<N> minutes
-
-📁 Files to be generated/updated:
-   SKILL.md + chapter files + glossary + patterns + cheatsheet
-
-➡  Proceed with Full Conversion / Update? (or type "analyze only" to preview first)
-```
-
-**How to estimate:**
-- Input tokens ≈ `estimated_tokens` from metadata × 1.3 (prompts overhead per chapter pass)
-- Output tokens ≈ chapters × per-chapter budget + 4,000 (SKILL.md) + 4,500 (glossary + patterns + cheatsheet)
-  - Per-chapter budget midpoint by `BOOK_TYPE` (DEPTH is decided later in Step 4 and can raise it): `text` ≈ 1,000, `technical` ≈ 1,800. If the user has already indicated reference-only vs deep study, use the matching row of the Step 7 matrix.
-- Price: Sonnet input=$3/MTok output=$15/MTok — Haiku input=$0.80/MTok output=$4/MTok
-
-Wait for the user to confirm before proceeding. If they say "analyze only", switch to Mode 2.
-
----
+List the intended output at a useful level. Continue with the requested conversion. Ask one focused question only if an unresolved choice would materially change the generated skill, such as the intended application domain or a possible overwrite of an existing skill. A request to analyze only remains analyze-only.
 
 ## Step 2.6 — REPL-style access for large books (> 50k tokens)
 
@@ -272,9 +242,9 @@ Then read the Table of Contents section if present to map all chapters.
 
 ---
 
-## Step 4 — Ask purpose (Full Conversion only)
+## Step 4 — Infer purpose (Full Conversion only)
 
-Before generating, ask the user:
+Infer the purpose from the request and any prior context. Ask only if the purpose remains unclear and would materially change the skill. If asking, use:
 
 > "What should this skill help you do? (Pick one or more)
 > 1. Apply the author's frameworks while working
@@ -282,7 +252,7 @@ Before generating, ask the user:
 > 3. Reference specific chapters and concepts
 > 4. All of the above"
 
-Use the answer to weight what gets highlighted in the SKILL.md Core section.
+Use the stated or inferred purpose to shape what gets highlighted in the SKILL.md Core section and how supporting material is organized.
 
 **Derive `DEPTH` from the answer (no extra prompt):**
 - Answer is **only** option 3 (reference) → `DEPTH=reference` — lean, fast-lookup chapters.
@@ -328,7 +298,8 @@ If the user selects **Update / Fold-in**, proceed immediately to the **Update / 
 ## Step 6 — Create skill directory structure
 
 ```bash
-mkdir -p "$SKILLS_HOME/<skill_name>/chapters"
+mkdir -p "$SKILLS_HOME/<skill_name>"
+# Create chapters/ when chapter-level lookup or traceability is useful.
 ```
 
 ---
@@ -355,7 +326,7 @@ The per-chapter budget scales with `BOOK_TYPE` and `DEPTH`. Technical chapters n
 
 If a chapter genuinely has no worked example and resists expansion, let it land below the study floor rather than padding — and note that the chapter is thin in its Core Idea. A `reference`-depth chapter, by contrast, deliberately omits worked examples and keeps only the decision-ready essentials.
 
-For EACH chapter/major section identified in Step 3:
+When chapter-level lookup or traceability is useful, for each relevant chapter/major section identified in Step 3:
 
 Read the corresponding section of the extracted `full_text.txt` (use character offsets or grep for chapter headings).
 
@@ -416,22 +387,24 @@ Create `$SKILLS_HOME/<skill_name>/chapters/ch<NN>-<slug>.md` using the structure
 
 ---
 
-## Step 8 — Generate supporting files
+## Step 8 — Add supporting files when useful
+
+Choose supporting files based on the source and the user’s purpose. Do not generate a file merely because it appears in this reference. A glossary, patterns index, or cheatsheet is appropriate when it improves lookup or repeated use; application-oriented skills may instead need task flows, decision criteria, examples, or explicit limits. Preserve chapter links when chapter lookup is useful.
 
 ### glossary.md
-Create `$SKILLS_HOME/<skill_name>/glossary.md`:
+If a glossary materially improves lookup, create `$SKILLS_HOME/<skill_name>/glossary.md`:
 - Every significant term from the book, alphabetically sorted
 - Format: `**Term** — definition (Ch N)`
 - Max 1,500 tokens
 
 ### patterns.md
-Create `$SKILLS_HOME/<skill_name>/patterns.md`:
+If the source contains reusable techniques that are easier to find separately, create `$SKILLS_HOME/<skill_name>/patterns.md`:
 - All concrete techniques, design patterns, algorithms from the book
 - Format: `## Pattern Name\n**When to use**: ...\n**How**: ...\n**Trade-offs**: ...`
 - Max 2,000 tokens
 
 ### cheatsheet.md
-Create `$SKILLS_HOME/<skill_name>/cheatsheet.md`:
+If a compact decision aid would help repeated application, create `$SKILLS_HOME/<skill_name>/cheatsheet.md`:
 
 **This is the most differentiated layer of the skill — treat it as a reasoning aid, not a keyword list.** Anyone can grep the glossary for a term. The cheatsheet captures the author's *judgment*: the decisions they'd make and why. It's the file that turns "I know the words" into "I'd act the way the author would".
 
@@ -488,25 +461,22 @@ the relevant chapter file before answering.
 
 ---
 
-## Chapter Index
+## Chapter Index (include when chapter files were created)
 
 | # | Title | Key Frameworks |
 |---|-------|----------------|
 | [ch01](chapters/ch01-<slug>.md) | <Title> | <framework1>, <framework2> |
-| [ch02](chapters/ch02-<slug>.md) | <Title> | <framework1>, <framework2> |
 ...
 
-## Topic Index
+## Topic Index (include when it helps users find material, especially across chapter files)
 
 <!-- Alphabetical. Major terms/frameworks → chapter(s) that cover them. -->
 - **<Term>** → ch<N>[, ch<N>]
 - **<Term>** → ch<N>
 
-## Supporting Files
+## Supporting Files (list only files actually created)
 
-- [glossary.md](glossary.md) — all key terms with definitions
-- [patterns.md](patterns.md) — all techniques and design patterns
-- [cheatsheet.md](cheatsheet.md) — quick reference tables and decision guides
+- Link each supporting file that materially helps lookup or application.
 
 ---
 
@@ -548,11 +518,7 @@ Then report to the user:
 📄 Pages: ~<N> | Chapters: <N>
 
 Files generated:
-  SKILL.md         — core frameworks + index   (~X tokens)
-  chapters/        — <N> chapter summaries     (~X tokens each, ~X total)
-  glossary.md      — key terms                 (~X tokens)
-  patterns.md      — techniques & patterns     (~X tokens)
-  cheatsheet.md    — quick reference           (~X tokens)
+  List only files actually created, with a short purpose and approximate size when useful.
   ─────────────────────────────────────────────────────
   Total skill size: ~X tokens (loaded on-demand, not all at once)
 
@@ -579,47 +545,35 @@ Share this skill (Copilot ecosystem, optional):
 When performing an Update/Fold-in operation on an existing skill at `$SKILLS_HOME/<skill_name>/`:
 
 ### 1. Read Existing Skill Structure
-Read and parse the existing skill's files:
-- Read `$SKILLS_HOME/<skill_name>/SKILL.md` to parse the existing **Chapter Index**, **Topic Index**, metadata (author, total chapters), and **Core Frameworks**.
-- List all files in `$SKILLS_HOME/<skill_name>/chapters/` to find the highest chapter number (e.g. `ch12`).
-- Read `$SKILLS_HOME/<skill_name>/glossary.md`, `$SKILLS_HOME/<skill_name>/patterns.md`, and `$SKILLS_HOME/<skill_name>/cheatsheet.md` to see what terms and frameworks are already indexed.
+Read the existing skill’s `SKILL.md` and identify its purpose, organization, author/source attribution, application workflows, limits, and navigation. If it uses chapter files, read its chapter/topic indexes and list those files to find the highest chapter number (e.g. `ch12`).
+- Read only the existing indexes/supporting files that exist and are relevant to the new material; do not assume every optional file exists.
 
 ### 2. Match Content & Identify Revisions vs. Additions
 Analyze the new extracted text in `<tempdir>/book_skill_work/full_text.txt` to identify if the new content represents:
 - **Updates/Revisions to existing chapters**: If a section of the new content directly updates or expands an existing chapter's topic, read the existing chapter file, merge the new details into it, and rewrite the file.
-- **New additions**: If the content introduces new chapters, papers, or separate sections, create **new chapter summary files** under `chapters/`. Start numbering these files after the highest existing chapter number (e.g. if the existing chapters stop at `ch12`, create `ch13-*.md`, `ch14-*.md`, etc.).
+- **New additions**: Add new chapter files only when chapter lookup or source traceability fits the target structure. Continue numbering after the highest existing chapter number; otherwise fold the new material into relevant application workflows, decision rules, examples, or limits.
 
-### 3. Generate or Update Chapter Summary Files
-For each new or revised chapter:
+### 3. Update Chapter Files When They Belong in the Target Structure
+If the target uses chapter files, for each new or revised chapter:
 - Read the corresponding section of the extracted new text.
 - Follow the formatting guidelines in **Step 7** to build the summary.
-- Write/update the file in `$SKILLS_HOME/<skill_name>/chapters/`.
+- Write/update the file in `$SKILLS_HOME/<skill_name>/chapters/`. If the target has no chapter structure, update the corresponding application-oriented content instead.
 
-### 4. Merge Supporting Files
-- **Merge glossary.md**:
-  - Read the existing `$SKILLS_HOME/<skill_name>/glossary.md`.
-  - Extract all new terms and definitions from the new content (Step 8 glossary guidelines).
-  - Combine and alphabetize the list of existing and new terms.
-  - If a term already exists, append the new chapter/source references to it (e.g. `**Term** — definition (Ch 4, Ch 13)`).
-  - Rewrite `$SKILLS_HOME/<skill_name>/glossary.md` with the fully merged, alphabetized list.
-- **Merge patterns.md**:
-  - Read existing `$SKILLS_HOME/<skill_name>/patterns.md`.
-  - Extract any new techniques, algorithms, or patterns from the new content.
-  - Append the new patterns, ensuring consistent formatting, and keeping the total length concise (under 2,500 tokens).
-- **Merge cheatsheet.md**:
-  - Read existing `$SKILLS_HOME/<skill_name>/cheatsheet.md`.
-  - Extract new comparison rules, decision tables, or parameter guides.
-  - Integrate them cleanly into the cheatsheet structure.
+### 4. Fold in indexes and supporting files as applicable
+
+- Preserve the target skill’s existing organization and update only files that exist and remain useful for the chosen purpose.
+- Merge glossary terms, patterns, cheatsheet rules, task flows, or other indexes only when the target contains them or the update makes them materially useful. Do not create the entire optional file set by default.
+- Keep source/chapter traceability for any application guidance that depends on specific parts of the book.
 
 ### 5. Re-generate the Master SKILL.md
 Update the master skill file `$SKILLS_HOME/<skill_name>/SKILL.md`:
-- **Metadata**: Increment the chapter count, update the estimated page count, and add the new source names if appropriate. Update the `Generated` date to the current date.
+- **Metadata**: Update source/page/chapter metadata only when present and applicable; add new source names if useful and update the `Generated` date when the file tracks it.
 - **Core Frameworks**: Fold in the most high-impact mental models or principles from the new content (ensuring the overall file remains under 4,000 tokens).
-- **Chapter Index**: Append the new chapters to the index table, linking to the newly created files.
-- **Topic Index**: Merge the new topics alphabetically. If an existing topic is also covered in the new chapters, append the new chapter links to its line (e.g. `- **Topic** → ch05, ch13`).
+- **Chapter Index**: If chapter files are part of the target structure, append new chapters and link them.
+- **Topic Index**: If the target uses a topic index, merge new topics and chapter links into it.
 
 ### 6. Cleanup and Proceed to Step 10
-Once the files are successfully written and merged, skip to **Step 10** to perform cleanup and print a custom update report summarizing the newly added chapters, merged glossary terms, and updated indices.
+Once the selected files are successfully updated, skip to **Step 10** to perform cleanup and report the files and indexes actually changed.
 
 ---
 
@@ -632,4 +586,4 @@ Once the files are successfully written and merged, skip to **Step 10** to perfo
 5. **Front-load SKILL.md** — compaction keeps the first 5,000 tokens; most important content comes first
 6. **Chapter files are on-demand** — they don't count against skill budget until loaded
 7. **Never copy raw book text** — always synthesize, summarize, extract signal
-8. **Topic index is critical** — it's how the agent navigates to the right chapter file
+8. **Navigation is critical** — use a topic index when chapter files need discovery; otherwise provide navigation suited to the generated structure
